@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>👕 Creador de Camisetas — 2D ↔ 3D</title>
+  <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- Import Map para Three.js -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.166.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.166.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <style>
+    body { margin:0; background:#f3f3f3; font-family:"Inter",sans-serif; display:flex; flex-direction:column; align-items:center; height:100vh; }
+    h1 { margin:20px 0; color:#111; }
+    .container { display:flex; justify-content:center; align-items:stretch; width:90%; max-width:1300px; gap:20px; flex:1; margin-bottom:30px; }
+    .panel { flex:1; background:#fff; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.1); padding:20px; display:flex; flex-direction:column; }
+    h2 { margin-top:0; color:#333; font-size:20px; }
+    .controls { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:10px; }
+    button, input, select { padding:8px 12px; border-radius:6px; border:1px solid #bbb; background:#333; color:#fff; cursor:pointer; font-size:14px; }
+    button:hover { background:#555; }
+    input[type="file"], select, input[type="color"] { background:#fff; color:#000; border:1px solid #ccc; }
+    #designer { width:100%; height:100%; border:1px dashed #ccc; border-radius:8px; background:#fff; flex:1; }
+    #viewer3D { width:100%; height:100%; border-radius:10px; background:#222; flex:1; }
+    p { font-size:12px; color:#666; margin-top:6px; }
+    @media (max-width:900px) { .container { flex-direction:column; } #designer, #viewer3D { height:400px; } }
+  </style>
+</head>
+<body>
+  <h1>👕 Creador de Camisetas — 2D ↔ 3D</h1>
+  <div class="container">
+    <!-- PANEL IZQUIERDO: 2D -->
+    <div class="panel">
+      <h2>🎨 Diseño 2D</h2>
+      <div class="controls">
+        <input id="fileImg" type="file" accept="image/*">
+        <button id="addText">Agregar texto</button>
+        <input id="colorPicker" type="color" value="#ffffff" title="Color de fondo">
+        <select id="fontSelect">
+          <option value="Arial">Arial</option>
+          <option value="Helvetica">Helvetica</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Impact">Impact</option>
+        </select>
+        <button id="bringFront">⬆️ Frente</button>
+        <button id="sendBack">⬇️ Atrás</button>
+        <button id="flipX">↔️ Voltear</button>
+        <button id="downloadDTF">📥 PNG</button>
+        <button id="downloadPDF">📄 PDF</button>
+      </div>
+      <canvas id="designer" width="512" height="512"></canvas>
+      <p>Todo lo que agregues aquí se refleja en tiempo real en el modelo 3D.</p>
+    </div>
+
+    <!-- PANEL DERECHO: 3D -->
+    <div class="panel">
+      <h2>🧩 Vista 3D</h2>
+      <div id="viewer3D"></div>
+    </div>
+  </div>
+
+  <footer style="padding:10px;color:#777;font-size:13px;">
+    Ejecuta con un servidor local (<code>python -m http.server</code>) si el modelo no carga.
+  </footer>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { jsPDF } from "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+
+    // --- Fabric.js ---
+    const fabricCanvas = new fabric.Canvas('designer', { preserveObjectStacking:true });
+
+    document.getElementById('fileImg').addEventListener('change', e=>{
+      const f = e.target.files[0]; if(!f) return;
+      const reader = new FileReader();
+      reader.onload = ev=>{
+        fabric.Image.fromURL(ev.target.result, img=>{
+          img.set({ left:150, top:150, cornerStyle:'circle' });
+          img.scaleToWidth(200);
+          fabricCanvas.add(img).setActiveObject(img);
+          fabricCanvas.requestRenderAll();
+          updateTexture();
+        });
+      };
+      reader.readAsDataURL(f);
+    });
+
+    document.getElementById('addText').addEventListener('click', ()=>{
+      const txt = new fabric.IText('Tu texto', { left:100, top:100, fontSize:40, fill:'#000' });
+      fabricCanvas.add(txt).setActiveObject(txt);
+      updateTexture();
+    });
+
+    document.getElementById('bringFront').addEventListener('click', ()=>{
+      const a = fabricCanvas.getActiveObject(); if(a) a.bringToFront(); updateTexture();
+    });
+
+    document.getElementById('sendBack').addEventListener('click', ()=>{
+      const a = fabricCanvas.getActiveObject(); if(a) a.sendToBack(); updateTexture();
+    });
+
+    document.getElementById('flipX').addEventListener('click', ()=>{
+      const a = fabricCanvas.getActiveObject();
+      if(a) { a.flipX = !a.flipX; fabricCanvas.requestRenderAll(); updateTexture(); }
+    });
+
+    document.getElementById('colorPicker').addEventListener('input', e=>{
+      fabricCanvas.setBackgroundColor(e.target.value, fabricCanvas.renderAll.bind(fabricCanvas));
+      updateTexture();
+    });
+
+    document.getElementById('fontSelect').addEventListener('change', e=>{
+      const a = fabricCanvas.getActiveObject();
+      if(a && a.set) { a.set('fontFamily', e.target.value); fabricCanvas.requestRenderAll(); updateTexture(); }
+    });
+
+    document.getElementById('downloadDTF').addEventListener('click', ()=>{
+      const dataUrl = fabricCanvas.toDataURL({ format:'png', multiplier:2 });
+      const a = document.createElement('a'); a.href=dataUrl; a.download='design.png'; a.click();
+    });
+
+    document.getElementById('downloadPDF').addEventListener('click', ()=>{
+      const pdf = new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+      const img = fabricCanvas.toDataURL({format:'png',multiplier:1});
+      pdf.text('Diseño de Camiseta',10,10);
+      pdf.addImage(img,'PNG',10,20,180,180);
+      pdf.save('diseño.pdf');
+    });
+
+    // --- Three.js ---
+    let scene, camera, renderer, model, canvasTexture;
+
+    function init3D(){
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x222222);
+
+      const width = document.getElementById('viewer3D').clientWidth;
+      const height = document.getElementById('viewer3D').clientHeight;
+
+      camera = new THREE.PerspectiveCamera(45, width/height, 0.1, 100);
+      camera.position.set(0,1.5,3);
+
+      renderer = new THREE.WebGLRenderer({ antialias:true });
+      renderer.setSize(width, height);
+      document.getElementById('viewer3D').appendChild(renderer.domElement);
+
+      const light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(5,5,5);
+      scene.add(light);
+      scene.add(new THREE.AmbientLight(0xffffff,0.5));
+
+      const loader = new GLTFLoader();
+      loader.load('https://threejs.org/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf', gltf=>{
+
+        model = gltf.scene;
+        scene.add(model);
+
+        // Crear la textura a partir del canvas de Fabric.js
+        canvasTexture = new THREE.CanvasTexture(fabricCanvas.getElement());
+        canvasTexture.flipY = false;
+
+        // Aplicar al material principal
+        model.traverse(child=>{
+          if(child.isMesh && child.material){
+            child.material.map = canvasTexture;
+            child.material.needsUpdate = true;
+          }
+        });
+
+        animate();
+      });
+    }
+
+    function updateTexture(){
+      if(canvasTexture){
+        canvasTexture.needsUpdate = true;
+      }
+    }
+
+    function animate(){
+      requestAnimationFrame(animate);
+      if(model) model.rotation.y += 0.005;
+      renderer.render(scene, camera);
+    }
+
+    init3D();
+
+    ['object:added','object:modified','object:removed','after:render'].forEach(evt=>{
+      fabricCanvas.on(evt, ()=>updateTexture());
+    });
+  </script>
+</body>
+</html>
