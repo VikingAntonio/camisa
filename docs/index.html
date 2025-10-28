@@ -36,7 +36,7 @@
 <body>
   <h1>👕 Creador de Camisetas — 2D ↔ 3D</h1>
   <div class="container">
-    <!-- PANEL IZQUIERDO: 2D -->
+    <!-- PANEL IZQUIERDO -->
     <div class="panel">
       <h2>🎨 Diseño 2D</h2>
       <div class="controls">
@@ -59,7 +59,7 @@
       <p>Todo lo que agregues aquí se refleja en tiempo real en el modelo 3D.</p>
     </div>
 
-    <!-- PANEL DERECHO: 3D -->
+    <!-- PANEL DERECHO -->
     <div class="panel">
       <h2>🧩 Vista 3D</h2>
       <div id="viewer3D"></div>
@@ -67,12 +67,13 @@
   </div>
 
   <footer style="padding:10px;color:#777;font-size:13px;">
-    Ejecuta con un servidor local (<code>python -m http.server</code>) si el modelo no carga.
+    Ejecuta con un servidor local (<code>python -m http.server</code>) o súbelo a GitHub Pages.
   </footer>
 
   <script type="module">
     import * as THREE from "three";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { jsPDF } from "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
 
     // --- Fabric.js ---
@@ -135,49 +136,75 @@
       pdf.save('diseño.pdf');
     });
 
-    // --- Three.js ---
-    let scene, camera, renderer, model, canvasTexture;
+    // --- THREE.JS ---
+    let scene, camera, renderer, model, canvasTexture, controls;
 
     function init3D(){
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x222222);
 
-      const width = document.getElementById('viewer3D').clientWidth;
-      const height = document.getElementById('viewer3D').clientHeight;
+      const container = document.getElementById('viewer3D');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
 
       camera = new THREE.PerspectiveCamera(45, width/height, 0.1, 100);
-      camera.position.set(0,1.5,3);
+      camera.position.set(0, 1, 3);
 
       renderer = new THREE.WebGLRenderer({ antialias:true });
+      renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(width, height);
-      document.getElementById('viewer3D').appendChild(renderer.domElement);
+      container.appendChild(renderer.domElement);
 
-      const light = new THREE.DirectionalLight(0xffffff, 1);
-      light.position.set(5,5,5);
-      scene.add(light);
-      scene.add(new THREE.AmbientLight(0xffffff,0.5));
+      // Luces
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+      dirLight.position.set(5,5,5);
+      scene.add(dirLight);
+      scene.add(new THREE.AmbientLight(0xffffff,0.6));
+
+      // Control de órbita
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.target.set(0, 0.5, 0);
+
+      // Ayuda visual
+      scene.add(new THREE.AxesHelper(1));
 
       const loader = new GLTFLoader();
-      loader.load('https://vikingantonio.github.io/camisa/camisa5.gltf', gltf=>{
+      loader.load(
+        'https://threejs.org/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf',
+        gltf=>{
+          model = gltf.scene;
+          model.position.set(0, -0.5, 0);
+          model.scale.set(2, 2, 2);
+          scene.add(model);
 
+          canvasTexture = new THREE.CanvasTexture(fabricCanvas.getElement());
+          canvasTexture.flipY = false;
 
-        model = gltf.scene;
-        scene.add(model);
+          model.traverse(child=>{
+            if(child.isMesh){
+              child.material.map = canvasTexture;
+              child.material.needsUpdate = true;
+            }
+          });
 
-        // Crear la textura a partir del canvas de Fabric.js
-        canvasTexture = new THREE.CanvasTexture(fabricCanvas.getElement());
-        canvasTexture.flipY = false;
+          console.log("✅ Modelo 3D cargado correctamente");
+          animate();
+        },
+        undefined,
+        err=>console.error("❌ Error al cargar modelo:", err)
+      );
 
-        // Aplicar al material principal
-        model.traverse(child=>{
-          if(child.isMesh && child.material){
-            child.material.map = canvasTexture;
-            child.material.needsUpdate = true;
-          }
-        });
+      window.addEventListener('resize', onWindowResize);
+    }
 
-        animate();
-      });
+    function onWindowResize(){
+      const container = document.getElementById('viewer3D');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
     }
 
     function updateTexture(){
@@ -189,6 +216,7 @@
     function animate(){
       requestAnimationFrame(animate);
       if(model) model.rotation.y += 0.005;
+      controls.update();
       renderer.render(scene, camera);
     }
 
@@ -200,4 +228,3 @@
   </script>
 </body>
 </html>
-
